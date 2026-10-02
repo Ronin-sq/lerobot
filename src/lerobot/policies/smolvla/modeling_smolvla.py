@@ -552,14 +552,23 @@ class VLAFlowMatching(nn.Module):
         return sample_time_beta(bsize, device, alpha=1.5, beta=1.0, scale=0.999, offset=0.001)
 
     def embed_prefix(
-        self, images, img_masks, lang_tokens, lang_masks, state: torch.Tensor = None
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        self,
+        images,
+        img_masks,
+        lang_tokens,
+        lang_masks,
+        state: torch.Tensor | None = None,
+        return_image_token_count: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor, int
+    ]:
         """Embed images with SigLIP and language tokens with embedding layer to prepare
         for SmolVLM transformer processing.
         """
         embs = []
         pad_masks = []
         att_masks = []
+        num_image_tokens = 0
         for _img_idx, (
             img,
             img_mask,
@@ -587,6 +596,7 @@ class VLAFlowMatching(nn.Module):
             img_emb = img_emb * torch.tensor(img_emb_dim**0.5, dtype=img_emb.dtype, device=img_emb.device)
 
             bsize, num_img_embs = img_emb.shape[:2]
+            num_image_tokens += num_img_embs
             img_mask = img_mask[:, None].expand(bsize, num_img_embs)
 
             embs.append(img_emb)
@@ -617,7 +627,6 @@ class VLAFlowMatching(nn.Module):
 
         num_lang_embs = lang_emb.shape[1]
         att_masks += [0] * num_lang_embs
-
         state_emb = self.state_proj(state)
         state_emb = state_emb[:, None, :] if state_emb.ndim == 2 else state_emb
         embs.append(state_emb)
@@ -643,6 +652,8 @@ class VLAFlowMatching(nn.Module):
 
         att_masks = att_masks.expand(bsize, -1)
 
+        if return_image_token_count:
+            return embs, pad_masks, att_masks, num_image_tokens
         return embs, pad_masks, att_masks
 
     def embed_suffix(self, noisy_actions, timestep):
